@@ -17,11 +17,8 @@ import math
 import os
 import argparse
 import configparser
+import csv
 
-# Default values for options
-#DEF_SEND_ADDR="255.255.255.255"
-# DEF_SEND_ADDR="10.1.1.255"
-# DEF_SEND_PORT=4000
 
 LATLONG_TO_RADIANS = math.pi / 180.0
 RADIANS_TO_NM = 180.0 * 60.0 / math.pi
@@ -57,15 +54,29 @@ def horizontal_speed(distance, seconds):
     """compute integer speed for a distance traveled in some number of seconds"""
     return(int(3600.0 * distance / seconds))
 
-def get_traffic():
+def get_traffic(iteration):
     if cfg.getboolean('traffic', 'enabled'):
-        print('Traffic enabled')
         traffic = []
         if cfg.getboolean('traffic', 'csv'):
-            print('csv')
-            pass
+            step = iteration % cfg.getint('traffic', 'csvNumberOfSteps')
+            csvFileName = cfg.get('traffic', 'csvFileName')
+            with open(csvFileName) as csvfile:
+                reader = csv.DictReader(csvfile, delimiter=',')
+                for row in reader:
+                    if int(row['step']) == step:
+                        plane = {}
+                        plane['latitude'] = float(row['latitude'])
+                        plane['longitude'] = float(row['longitude'])
+                        plane['altitude'] = float(row['altitude'])
+                        plane['horizontalSpeed'] = int(row['horizontalSpeed'])
+                        plane['verticalSpeed'] = float(row['verticalSpeed'])
+                        plane['heading'] = float(row['heading'])
+                        plane['callSign'] = row['callSign']
+                        icao = row['icaoAddress']
+                        icao = int(icao, 0)
+                        plane['icaoAddress'] = icao
+                        traffic.append(plane)
         else:
-            print('Single Plane')
             plane = {}
             plane['latitude'] = cfg.getfloat('traffic', 'latitude')
             plane['longitude'] = cfg.getfloat('traffic', 'longitude')
@@ -91,13 +102,6 @@ if __name__ == '__main__':
 
     destAddr = arguments.efb_ip
     destPort = arguments.efb_port
-
-    # if 'SEND_ADDR' in os.environ.keys():
-    #     destAddr = os.environ['SEND_ADDR']
-    # else:
-    #     destAddr = DEF_SEND_ADDR
-    #
-    # destPort = int(DEF_SEND_PORT)
 
     print "Simulating Stratux unit."
     print "Transmitting to %s:%s" % (destAddr, destPort)
@@ -128,17 +132,11 @@ if __name__ == '__main__':
         (31.598056, -100.160000, 'TX028'),
     ]
 
-    # # traffic tuples: lat, long, alt, hspeed, vspeed, hdg, callSign, address
-    # traffic = [
-    #     (30.60, -98.00, 3000, 100, 500, 45, 'NBNDT1', 0x000001),
-    #     (30.60, -98.40, 2500, 120, 0, 295, 'NBNDT2', 0x000002),
-    #     (30.18, -98.13, 3200, 150, -100, 285, 'NBNDT3', 0x000003),
-    #     (30.13, -98.30, 2000, 110, 250, 10, 'NBNDT4', 0x000004),
-    # ]
-    
+
     uptime = 0
     latitudePrev = 0.0
     longitudePrev = 0.0
+    iteration = 0
     
     while True:
         
@@ -185,9 +183,8 @@ if __name__ == '__main__':
         packetTotal += 1
         
         # Traffic Reports
-        traffic = get_traffic()
+        traffic = get_traffic(iteration)
         for t in traffic:
-            # (tlat, tlong, talt, tspeed, tvspeed, thdg, tcall, taddr) = t
             buf = encoder.msgTrafficReport(latitude=t['latitude'], longitude=t['longitude'], altitude=t['altitude'], hVelocity=t['horizontalSpeed'], vVelocity=t['verticalSpeed'], trackHeading=t['heading'], callSign=t['callSign'], address=t['icaoAddress'])
             s.sendto(buf, (destAddr, destPort))
             packetTotal += 1
@@ -204,3 +201,4 @@ if __name__ == '__main__':
         
         # Delay for the rest of this second
         time.sleep(1.0 - (time.time() - timeStart))
+        iteration += 1
